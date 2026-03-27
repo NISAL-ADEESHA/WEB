@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - CC Checker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/dashboard">CC Checker Admin</a>
+            <div class="d-flex">
+                <a href="/dashboard" class="btn btn-outline-light me-2">Dashboard</a>
+                <a href="/logout" class="btn btn-outline-danger">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <ul class="nav nav-tabs" id="adminTab" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link active" id="sites-tab" data-bs-toggle="tab" data-bs-target="#sites" type="button">Sites Management</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="proxies-tab" data-bs-toggle="tab" data-bs-target="#proxies" type="button">Proxy Management</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="keys-tab" data-bs-toggle="tab" data-bs-target="#keys" type="button">Key Generation</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button">Statistics</button>
+            </li>
+        </ul>
+
+        <div class="tab-content mt-3">
+            <!-- Sites Management -->
+            <div class="tab-pane fade show active" id="sites">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Add New Site</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control" id="siteUrl" placeholder="https://example.com">
+                            <button class="btn btn-primary" onclick="addSite()">Add Site</button>
+                        </div>
+                        <div id="siteResult"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Current Sites</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="sitesList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Proxy Management -->
+            <div class="tab-pane fade" id="proxies">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Add Proxies</h5>
+                    </div>
+                    <div class="card-body">
+                        <textarea class="form-control mb-3" id="proxiesText" rows="5" placeholder="ip:port:user:pass&#10;ip:port&#10;http://user:pass@ip:port"></textarea>
+                        <button class="btn btn-primary" onclick="addProxies()">Add Proxies</button>
+                        <div id="proxyResult"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Current Proxies</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="proxiesList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Generation -->
+            <div class="tab-pane fade" id="keys">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Generate Premium Keys</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label>Number of Keys</label>
+                                <input type="number" class="form-control" id="keyAmount" value="1" min="1" max="50">
+                            </div>
+                            <div class="col-md-4">
+                                <label>Days Valid</label>
+                                <input type="number" class="form-control" id="keyDays" value="30" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-success mt-4" onclick="generateKeys()">Generate Keys</button>
+                            </div>
+                        </div>
+                        <div id="keysResult" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="tab-pane fade" id="stats">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>System Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="statsContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSites();
+            loadProxies();
+            loadStats();
+        });
+        
+        async function loadSites() {
+            try {
+                const response = await fetch('/api/get_sites');
+                const data = await response.json();
+                
+                const sitesList = document.getElementById('sitesList');
+                if (data.sites && data.sites.length > 0) {
+                    let html = '<div class="list-group">';
+                    data.sites.forEach((site, index) => {
+                        html += `
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <code>${site}</code>
+                                <button class="btn btn-sm btn-danger" onclick="removeSite(${index + 1}, '${site}')">Remove</button>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    sitesList.innerHTML = html;
+                } else {
+                    sitesList.innerHTML = '<div class="alert alert-info">No sites added yet</div>';
+                }
+            } catch (error) {
+                console.error('Error loading sites:', error);
+            }
+        }
+        
+        async function addSite() {
+            const site = document.getElementById('siteUrl').value.trim();
+            if (!site) {
+                alert('Please enter a site URL');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('siteResult');
+            resultDiv.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Adding...';
+            
+            try {
+                const response = await fetch('/api/add_site', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({site: site})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-success">Site added successfully!</div>`;
+                    document.getElementById('siteUrl').value = '';
+                    loadSites();
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function removeSite(index, site) {
+            if (!confirm(`Remove site: ${site}?`)) return;
+            
+            try {
+                const response = await fetch('/api/remove_site', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({index: index, site: site})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    loadSites();
+                }
+            } catch (error) {
+                alert('Error removing site: ' + error.message);
+            }
+        }
+        
+        async function loadProxies() {
+            try {
+                const response = await fetch('/api/get_proxies');
+                const data = await response.json();
+                
+                const proxiesList = document.getElementById('proxiesList');
+                if (data.proxies && data.proxies.length > 0) {
+                    let html = '<div class="list-group">';
+                    data.proxies.forEach((proxy, index) => {
+                        html += `
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <code>${proxy.type}://${proxy.ip}:${proxy.port}</code>
+                                    ${proxy.username ? `<small class="text-muted"> (${proxy.username})</small>` : ''}
+                                </div>
+                                <button class="btn btn-sm btn-danger" onclick="removeProxy(${index + 1})">Remove</button>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    proxiesList.innerHTML = html;
+                } else {
+                    proxiesList.innerHTML = '<div class="alert alert-info">No proxies added yet</div>';
+                }
+            } catch (error) {
+                console.error('Error loading proxies:', error);
+            }
+        }
+        
+        async function addProxies() {
+            const proxies = document.getElementById('proxiesText').value;
+            if (!proxies.trim()) {
+                alert('Please enter proxies');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('proxyResult');
+            resultDiv.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Testing and adding proxies...';
+            
+            try {
+                const response = await fetch('/api/add_proxies', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({proxies: proxies})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-success">Added ${data.added} working proxies. Total: ${data.total}</div>`;
+                    document.getElementById('proxiesText').value = '';
+                    loadProxies();
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function removeProxy(index) {
+            if (!confirm(`Remove proxy #${index}?`)) return;
+            
+            try {
+                const response = await fetch('/api/remove_proxy', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({index: index})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    loadProxies();
+                }
+            } catch (error) {
+                alert('Error removing proxy: ' + error.message);
+            }
+        }
+        
+        async function generateKeys() {
+            const amount = parseInt(document.getElementById('keyAmount').value);
+            const days = parseInt(document.getElementById('keyDays').value);
+            
+            if (amount < 1 || amount > 50) {
+                alert('Amount must be between 1 and 50');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('keysResult');
+            resultDiv.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Generating keys...';
+            
+            try {
+                const response = await fetch('/api/generate_keys', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({amount: amount, days: days})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    let keysHtml = '<div class="alert alert-success">Generated keys:</div><div class="list-group">';
+                    data.keys.forEach(key => {
+                        keysHtml += `<div class="list-group-item"><code>${key}</code> (${days} days)</div>`;
+                    });
+                    keysHtml += '</div>';
+                    resultDiv.innerHTML = keysHtml;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                const statsDiv = document.getElementById('statsContent');
+                statsDiv.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body">
+                                    <h5 class="card-title">Premium Users</h5>
+                                    <h2>${data.premium_users}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body">
+                                    <h5 class="card-title">Banned Users</h5>
+                                    <h2>${data.banned_users}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Keys</h5>
+                                    <h2>${data.total_keys}</h2>
+                                    <small>Used: ${data.used_keys}</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Sites</h5>
+                                    <h2>${data.total_sites}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Proxies</h5>
+                                    <h2>${data.total_proxies}</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+    </script>
+</body>
+</html>
