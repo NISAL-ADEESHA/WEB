@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CC Checker Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        .status-approved { color: #28a745; }
+        .status-charged { color: #dc3545; font-weight: bold; }
+        .status-declined { color: #6c757d; }
+        .result-card { 
+            background: #f8f9fa;
+            border-left: 4px solid;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        .card-badge {
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">CC Checker</a>
+            <div class="d-flex">
+                {% if is_admin %}
+                <a href="/admin" class="btn btn-outline-light me-2">Admin Panel</a>
+                {% endif %}
+                <a href="/logout" class="btn btn-outline-danger">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="myTab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#single" type="button" role="tab">Single Check</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="multiple-tab" data-bs-toggle="tab" data-bs-target="#multiple" type="button" role="tab">Multiple Check</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file" type="button" role="tab">File Upload</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="redeem-tab" data-bs-toggle="tab" data-bs-target="#redeem" type="button" role="tab">Redeem Key</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-content">
+                            <!-- Single Check Tab -->
+                            <div class="tab-pane fade show active" id="single" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="singleCard" class="form-label">Card Details</label>
+                                    <textarea class="form-control" id="singleCard" rows="3" placeholder="4111111111111111|12|2025|123"></textarea>
+                                </div>
+                                <button class="btn btn-primary" onclick="checkSingle()">Check Card</button>
+                                <div id="singleResult" class="mt-3"></div>
+                            </div>
+
+                            <!-- Multiple Check Tab -->
+                            <div class="tab-pane fade" id="multiple" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="multipleCards" class="form-label">Multiple Cards (one per line)</label>
+                                    <textarea class="form-control" id="multipleCards" rows="5" placeholder="4111111111111111|12|2025|123&#10;5111111111111111|12|2025|123"></textarea>
+                                </div>
+                                <button class="btn btn-primary" onclick="checkMultiple()">Check All Cards</button>
+                                <div id="multipleResult" class="mt-3"></div>
+                            </div>
+
+                            <!-- File Upload Tab -->
+                            <div class="tab-pane fade" id="file" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="fileUpload" class="form-label">Upload .txt File with Cards</label>
+                                    <input type="file" class="form-control" id="fileUpload" accept=".txt">
+                                </div>
+                                <button class="btn btn-primary" onclick="uploadFile()">Upload & Check</button>
+                                <div id="fileProgress" class="mt-3"></div>
+                                <div id="fileResult" class="mt-3"></div>
+                            </div>
+
+                            <!-- Redeem Key Tab -->
+                            <div class="tab-pane fade" id="redeem" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="redeemKey" class="form-label">Premium Key</label>
+                                    <input type="text" class="form-control" id="redeemKey" placeholder="Enter your premium key">
+                                </div>
+                                <button class="btn btn-success" onclick="redeemKey()">Redeem</button>
+                                <div id="redeemResult" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let socket = io();
+        let currentProcessId = null;
+
+        socket.on('progress', function(data) {
+            if (data.process_id === currentProcessId) {
+                updateProgress(data);
+            }
+        });
+
+        function updateProgress(data) {
+            const progressDiv = document.getElementById('fileProgress');
+            const percent = (data.current / data.total) * 100;
+            
+            progressDiv.innerHTML = `
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Processing: ${data.current}/${data.total}</h6>
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 style="width: ${percent}%">${Math.round(percent)}%</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            addResultToDisplay(data.result, data.card, 'fileResult');
+        }
+
+        async function checkSingle() {
+            const card = document.getElementById('singleCard').value.trim();
+            if (!card) {
+                alert('Please enter card details');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('singleResult');
+            resultDiv.innerHTML = '<div class="text-center"><div class="loading-spinner"></div> Checking...</div>';
+            
+            try {
+                const response = await fetch('/api/check_card', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({card: card})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    displayResult(data.result, data.card, resultDiv);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function checkMultiple() {
+            const cards = document.getElementById('multipleCards').value;
+            if (!cards.trim()) {
+                alert('Please enter cards');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('multipleResult');
+            resultDiv.innerHTML = '<div class="text-center"><div class="loading-spinner"></div> Checking cards...</div>';
+            
+            try {
+                const response = await fetch('/api/check_multiple', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cards: cards})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = '';
+                    data.results.forEach(item => {
+                        displayResult(item.result, item.card, resultDiv);
+                    });
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileUpload');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const progressDiv = document.getElementById('fileProgress');
+            const resultDiv = document.getElementById('fileResult');
+            progressDiv.innerHTML = '<div class="text-center"><div class="loading-spinner"></div> Uploading...</div>';
+            resultDiv.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/upload_cards', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    progressDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    currentProcessId = data.process_id;
+                    progressDiv.innerHTML = `<div class="alert alert-info">Processing ${data.total} cards...</div>`;
+                    
+                    // Poll for status
+                    checkStatus(data.process_id);
+                }
+            } catch (error) {
+                progressDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function checkStatus(processId) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/process_status/${processId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        document.getElementById('fileProgress').innerHTML = '<div class="alert alert-success">Processing completed!</div>';
+                    }
+                } catch (error) {
+                    console.error('Error checking status:', error);
+                }
+            }, 1000);
+        }
+        
+        async function redeemKey() {
+            const key = document.getElementById('redeemKey').value.trim();
+            if (!key) {
+                alert('Please enter a key');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('redeemResult');
+            resultDiv.innerHTML = '<div class="text-center"><div class="loading-spinner"></div> Redeeming...</div>';
+            
+            try {
+                const response = await fetch('/api/redeem_key', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: key})
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-success">Key redeemed successfully! ${data.days} days added.</div>`;
+                    document.getElementById('redeemKey').value = '';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+        
+        function displayResult(result, card, container) {
+            const responseText = result.Response || '';
+            const statusText = result.Status || '';
+            const isCharged = statusText === 'Charged' || responseText.includes('charged') || responseText.includes('order completed');
+            const isApproved = !isCharged && (responseText.toLowerCase().includes('approved') || 
+                                              responseText.toLowerCase().includes('success'));
+            
+            let statusClass = 'status-declined';
+            let statusIcon = '❌';
+            let statusTitle = 'DECLINED';
+            
+            if (isCharged) {
+                statusClass = 'status-charged';
+                statusIcon = '💎';
+                statusTitle = 'CHARGED';
+            } else if (isApproved) {
+                statusClass = 'status-approved';
+                statusIcon = '✅';
+                statusTitle = 'APPROVED';
+            }
+            
+            const html = `
+                <div class="result-card" style="border-left-color: ${isCharged ? '#dc3545' : (isApproved ? '#28a745' : '#6c757d')}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1 ${statusClass}">${statusIcon} ${statusTitle}</h6>
+                            <code class="card-badge">${card}</code>
+                        </div>
+                        <small class="text-muted">Site #${result.site_index || '?'}</small>
+                    </div>
+                    <div class="mt-2">
+                        <small><strong>Gateway:</strong> ${result.Gateway || 'Unknown'}</small><br>
+                        <small><strong>Response:</strong> ${result.Response || 'No response'}</small><br>
+                        <small><strong>Price:</strong> ${result.Price || '-'}</small>
+                    </div>
+                </div>
+            `;
+            
+            container.insertAdjacentHTML('afterbegin', html);
+        }
+        
+        function addResultToDisplay(result, card, containerId) {
+            const container = document.getElementById(containerId);
+            displayResult(result, card, container);
+        }
+    </script>
+</body>
+</html>
